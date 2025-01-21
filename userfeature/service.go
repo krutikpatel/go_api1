@@ -1,6 +1,7 @@
 package userfeature
 
 import (
+	"api1/metrics"
 	"errors"
 	"sync"
 	"time"
@@ -9,17 +10,19 @@ import (
 )
 
 type UserService struct {
-	users  map[uint]*User
-	nextID uint
-	mu     sync.RWMutex
-	logger *logrus.Logger
+	users   map[uint]*User
+	nextID  uint
+	mu      sync.RWMutex
+	logger  *logrus.Logger
+	metrics *metrics.Metrics
 }
 
-func NewUserService(logger *logrus.Logger) *UserService {
+func NewUserService(logger *logrus.Logger, metrics *metrics.Metrics) *UserService {
 	return &UserService{
-		users:  make(map[uint]*User),
-		nextID: 1,
-		logger: logger,
+		users:   make(map[uint]*User),
+		nextID:  1,
+		logger:  logger,
+		metrics: metrics,
 	}
 }
 
@@ -30,6 +33,7 @@ func (s *UserService) Create(req *CreateUserRequest) (*User, error) {
 	// Check for duplicate email
 	for _, u := range s.users {
 		if u.Email == req.Email {
+			s.metrics.UserOperationsTotal.WithLabelValues("create", "failure").Inc()
 			s.logger.WithField("email", req.Email).Warn("Attempt to create user with duplicate email")
 			return nil, errors.New("email already exists")
 		}
@@ -45,6 +49,10 @@ func (s *UserService) Create(req *CreateUserRequest) (*User, error) {
 
 	s.users[user.ID] = user
 	s.nextID++
+
+	// Update metrics
+	s.metrics.UsersTotal.Inc()
+	s.metrics.UserOperationsTotal.WithLabelValues("create", "success").Inc()
 
 	s.logger.WithFields(logrus.Fields{
 		"id":    user.ID,
@@ -121,11 +129,15 @@ func (s *UserService) Delete(id uint) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.users[id]; !exists {
+		s.metrics.UserOperationsTotal.WithLabelValues("delete", "failure").Inc()
 		s.logger.WithField("id", id).Warn("Attempt to delete non-existent user")
 		return errors.New("user not found")
 	}
 
 	delete(s.users, id)
+	// Update metrics
+	s.metrics.UsersTotal.Dec()
+	s.metrics.UserOperationsTotal.WithLabelValues("delete", "success").Inc()
 
 	s.logger.WithField("id", id).Info("Deleted user")
 	return nil

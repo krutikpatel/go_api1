@@ -2,18 +2,23 @@ package main
 
 import (
 	"api1/logger"
+	"api1/metrics"
 	"api1/middleware"
 	"api1/userfeature"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
 	// Initialize logger
 	log := logger.NewLogger()
 
+	// Initialize metrics
+	metrics := metrics.NewMetrics("user_api1")
+
 	// Initialize service and handler
-	userService := userfeature.NewUserService(log)
+	userService := userfeature.NewUserService(log, metrics)
 	userHandler := userfeature.NewUserHandler(userService, log)
 
 	// Set up Gin router
@@ -22,6 +27,10 @@ func main() {
 
 	//set middlewares
 	r.Use(middleware.LoggingMiddleware(log)) // Add the logging middleware
+	r.Use(middleware.PrometheusMiddleware(metrics))
+
+	// Metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Routes
 	v1 := r.Group("/api/v1")
